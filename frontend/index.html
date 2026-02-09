@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    />
+    <title>Student Payment Dashboard</title>
+  </head>
+  <body>
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <i class="fas fa-graduation-cap"></i>
+        <h2>Student Portal</h2>
+      </div>
+      <ul class="options">
+        <li class="active" onclick="showSection('overview')">
+          <a><i class="fas fa-home"></i> <span>Overview</span></a>
+        </li>
+        <li onclick="showSection('billing')">
+          <a
+            ><i class="fas fa-file-invoice-dollar"></i>
+            <span>My Billing</span></a
+          >
+        </li>
+        <li onclick="showSection('statement')">
+          <a><i class="fas fa-file-alt"></i> <span>Account Statement</span></a>
+        </li>
+        <li onclick="showSection('history')">
+          <a><i class="fas fa-history"></i> <span>Payment History</span></a>
+        </li>
+        <li onclick="showSection('settings')">
+          <a><i class="fas fa-cog"></i> <span>Settings</span></a>
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <button class="logout-btn">
+          <i class="fas fa-sign-out-alt"></i>
+          <span>Logout</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="main-content">
+      <div class="main-header" id="main-header">
+        <div class="header-left">
+          <button class="menu-toggle" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+          </button>
+          <h1>Student Dashboard</h1>
+        </div>
+        <div class="right-header">
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" placeholder="Search..." />
+          </div>
+          <button class="notification-btn">
+            <i class="fas fa-bell"></i>
+            <span class="notification-badge">3</span>
+          </button>
+          <div class="profile-icon">
+            <h2 id="profile-initials">JD</h2>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="main-content-body">
+        <!-- OVERVIEW PAGE -->
+        <div class="page-section active" id="overview-section">
+          <div class="welcome-banner">
+            <div class="welcome-text">
+              <h2 id="welcome-message">Welcome back, <span id="welcome-name">loading</span>! </h2>
+              <p>Here's your payment overview for this semester</p>
+            </div>
+            <div class="quick-stats">
+              <div class="stat-card">
+                <i class="fas fa-wallet"></i>
+                <div>
+                  <p class="stat-label">Total Due</p>
+                  <h3 class="stat-value" id="overview-total-due">₱0.00</h3>
+                </div>
+              </div>
+              <div class="stat-card">
+                <i class="fas fa-check-circle"></i>
+                <div>
+                  <p class="stat-label">Paid</p>
+                  <h3 class="stat-value" id="overview-total-paid">₱0.00</h3>
+                </div>
+              </div>
+              <div class="stat-card danger">
+                <i class="fas fa-exclamation-circle"></i>
+                <div>
+                  <p class="stat-label">Outstanding</p>
+                  <h3 class="stat-value" id="overview-outstanding">₱0.00</h3>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="overview-grid">
+            <!-- Student Info -->
+            <div class="card student-info-card">
+              <div class="card-header">
+                <i class="fas fa-user"></i>
+                <h3>Student Information</h3>
+              </div>
+              <div class="card-body">
+                <div class="info-item">
+                  <span class="info-label">Full Name:</span>
+                  <span class="info-value" id="student-name">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Student ID:</span>
+                  <span class="info-value" id="student-id">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Course:</span>
+                  <span class="info-value" id="student-course">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Year Level:</span>
+                  <span class="info-value" id="student-year">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Section:</span>
+                  <span class="info-value" id="student-section">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Admission Type:</span>
+                  <span class="info-value" id="student-admission">Loading...</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Adviser Info -->
+            <div class="card">
+              <div class="card-header">
+                <i class="fas fa-chalkboard-teacher"></i>
+                <h3>Adviser Information</h3>
+              </div>
+              <div class="card-body">
+                <div class="info-item">
+                  <span class="info-label">Adviser Name:</span>
+                  <span class="info-value" id="adviser-name">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Email:</span>
+                  <span class="info-value" id="adviser-email">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Office:</span>
+                  <span class="info-value" id="adviser-office">Loading...</span>
+                </div>
+                <div class="info-item">
+                  <span class="info-label">Consultation Hours:</span>
+                  <span class="info-value" id="adviser-hours">Loading...</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Upcoming Deadlines -->
+            <div class="card deadlines-card">
+              <div class="card-header">
+                <i class="fas fa-clock"></i>
+                <h3>Upcoming Deadlines</h3>
+                <span class="view-all">View All</span>
+              </div>
+              <div class="card-body" id="deadlines-container">
+                <div class="deadline-item">
+                  <div class="deadline-info">
+                    <div class="deadline-icon pending">
+                      <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="deadline-text">
+                      <p class="task-name">Loading deadlines...</p>
+                      <p class="due-date">Please wait</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Recent Transactions -->
+            <div class="card transactions-card">
+              <div class="card-header">
+                <i class="fas fa-receipt"></i>
+                <h3>Recent Transactions</h3>
+              </div>
+              <div class="card-body">
+                <table class="transaction-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>OR Number</th>
+                      <th>Amount</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="recent-transactions-body">
+                    <tr>
+                      <td colspan="4" style="text-align: center; padding: 20px;">Loading...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MY BILLING PAGE -->
+        <div class="page-section" id="billing-section">
+          <div class="page-header">
+            <h2><i class="fas fa-file-invoice-dollar"></i> My Billing</h2>
+            <button class="btn-primary">
+              <i class="fas fa-download"></i> Download Statement
+            </button>
+          </div>
+
+          <div class="billing-summary">
+            <div class="summary-card total">
+              <i class="fas fa-calculator"></i>
+              <div>
+                <p>Total Assessment</p>
+                <h2 id="billing-total-assessment">₱0.00</h2>
+              </div>
+            </div>
+            <div class="summary-card paid">
+              <i class="fas fa-check-circle"></i>
+              <div>
+                <p>Total Paid</p>
+                <h2 id="billing-total-paid">₱0.00</h2>
+              </div>
+            </div>
+            <div class="summary-card balance">
+              <i class="fas fa-exclamation-triangle"></i>
+              <div>
+                <p>Balance Due</p>
+                <h2 id="billing-balance-due">₱0.00</h2>
+              </div>
+            </div>
+          </div>
+
+          <div class="billing-breakdown">
+            <h3>Billing Breakdown</h3>
+            <div class="billing-list" id="billing-breakdown-list">
+              <p style="text-align: center; padding: 20px;">Loading billing information...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ACCOUNT STATEMENT PAGE -->
+        <div class="page-section" id="statement-section">
+          <div class="page-header">
+            <h2><i class="fas fa-file-alt"></i> Account Statement</h2>
+            <div class="header-actions">
+              <select class="semester-select" id="statement-period-select">
+                <option>Loading periods...</option>
+              </select>
+              <button class="btn-primary">
+                <i class="fas fa-print"></i> Print
+              </button>
+            </div>
+          </div>
+
+          <div class="statement-container">
+            <div class="statement-header-info">
+              <div>
+                <p><strong>Student Name:</strong> <span id="stmt-student-name">Loading...</span></p>
+                <p><strong>Student ID:</strong> <span id="stmt-student-id">Loading...</span></p>
+              </div>
+              <div>
+                <p><strong>Course:</strong> <span id="stmt-course">Loading...</span></p>
+                <p><strong>Year Level:</strong> <span id="stmt-year">Loading...</span></p>
+              </div>
+              <div>
+                <p><strong>Semester:</strong> <span id="stmt-semester">Loading...</span></p>
+                <p><strong>Generated:</strong> <span id="stmt-generated">Loading...</span></p>
+              </div>
+            </div>
+
+            <div class="statement-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Description</th>
+                    <th>Charges</th>
+                    <th>Payments</th>
+                    <th>Balance</th>
+                  </tr>
+                </thead>
+                <tbody id="statement-transactions-body">
+                  <tr>
+                    <td colspan="5" style="text-align: center; padding: 20px;">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAYMENT HISTORY PAGE -->
+        <div class="page-section" id="history-section">
+          <div class="page-header">
+            <h2><i class="fas fa-history"></i> Payment History</h2>
+            <div class="header-actions">
+              <input
+                type="text"
+                class="search-input"
+                placeholder="Search transactions..."
+              />
+              <select class="filter-select">
+                <option>All Payments</option>
+                <option>This Month</option>
+                <option>Last 3 Months</option>
+                <option>This Year</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="history-stats">
+            <div class="stat-box">
+              <i class="fas fa-money-bill-wave"></i>
+              <div>
+                <p>Total Payments</p>
+                <h3 id="history-total-payments">₱0.00</h3>
+                <span class="sub-text">All time</span>
+              </div>
+            </div>
+            <div class="stat-box">
+              <i class="fas fa-receipt"></i>
+              <div>
+                <p>Transactions</p>
+                <h3 id="history-total-transactions">0</h3>
+                <span class="sub-text">All time</span>
+              </div>
+            </div>
+            <div class="stat-box">
+              <i class="fas fa-calendar-check"></i>
+              <div>
+                <p>Last Payment</p>
+                <h3 id="history-last-payment">No payments</h3>
+                <span class="sub-text">Ever</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="history-timeline">
+            <h3>Transaction History</h3>
+            <div class="timeline" id="payment-history-timeline">
+              <p style="text-align: center; padding: 20px;">Loading payment history...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- SETTINGS PAGE -->
+        <div class="page-section" id="settings-section">
+          <div class="page-header">
+            <h2><i class="fas fa-cog"></i> Settings</h2>
+          </div>
+
+          <div class="settings-container">
+            <!-- Profile Settings -->
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <i class="fas fa-user-circle"></i>
+                <h3>Profile Settings</h3>
+              </div>
+              <div class="settings-card-body">
+                <div class="form-group">
+                  <label>Full Name</label>
+                  <input
+                    type="text"
+                    id="settings-name"
+                    value=""
+                    class="form-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Email Address</label>
+                  <input
+                    type="email"
+                    id="settings-email"
+                    value=""
+                    class="form-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Phone Number</label>
+                  <input
+                    type="tel"
+                    id="settings-phone"
+                    value=""
+                    class="form-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Emergency Contact</label>
+                  <input
+                    type="tel"
+                    id="settings-emergency"
+                    value=""
+                    class="form-input"
+                  />
+                </div>
+                <button class="btn-primary">Update Profile</button>
+              </div>
+            </div>
+
+            <!-- Payment Methods -->
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <i class="fas fa-credit-card"></i>
+                <h3>Payment Methods</h3>
+              </div>
+              <div class="settings-card-body">
+                <div class="payment-method-list">
+                  <div class="payment-method-item">
+                    <div class="payment-method-icon">
+                      <i class="fas fa-credit-card"></i>
+                    </div>
+                    <div class="payment-method-info">
+                      <h4>Preferred Payment Method</h4>
+                      <p>Cash, GCash, Bank Transfer, Credit Card</p>
+                    </div>
+                  </div>
+                </div>
+                <button class="btn-secondary">
+                  <i class="fas fa-plus"></i> Add Payment Method
+                </button>
+              </div>
+            </div>
+
+            <!-- Notification Settings -->
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <i class="fas fa-bell"></i>
+                <h3>Notification Preferences</h3>
+              </div>
+              <div class="settings-card-body">
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <h4>Payment Reminders</h4>
+                    <p>Get notified about upcoming payment deadlines</p>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" checked />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <h4>Email Notifications</h4>
+                    <p>Receive payment confirmations via email</p>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" checked />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <h4>SMS Notifications</h4>
+                    <p>Get SMS alerts for important updates</p>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <h4>Payment Success Alerts</h4>
+                    <p>Instant notification when payment is processed</p>
+                  </div>
+                  <label class="toggle-switch">
+                    <input type="checkbox" checked />
+                    <span class="toggle-slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Security Settings -->
+            <div class="settings-card">
+              <div class="settings-card-header">
+                <i class="fas fa-lock"></i>
+                <h3>Security</h3>
+              </div>
+              <div class="settings-card-body">
+                <div class="form-group">
+                  <label>Current Password</label>
+                  <input
+                    type="password"
+                    placeholder="Enter current password"
+                    class="form-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>New Password</label>
+                  <input
+                    type="password"
+                    placeholder="Enter new password"
+                    class="form-input"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>Confirm New Password</label>
+                  <input
+                    type="password"
+                    placeholder="Confirm new password"
+                    class="form-input"
+                  />
+                </div>
+                <button class="btn-primary">Change Password</button>
+
+                <div class="divider"></div>
+
+                <div class="setting-item">
+                  <div class="setting-info">
+                    <h4>Two-Factor Authentication</h4>
+                    <p>Add an extra layer of security to your account</p>
+                  </div>
+                  <button class="btn-secondary">Enable</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>&copy; 2026 Payment System. All rights reserved.</p>
+    </div>
+
+   
+    <script src="api-helpers.js"></script>
+    <!-- Then include the main student script -->
+    <script src="index.js"></script>
+  </body>
+</html>
