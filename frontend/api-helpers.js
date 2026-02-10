@@ -1,3 +1,5 @@
+
+
 const API_BASE_URL = "http://localhost/account_payment_system/backend/api.php";
 
 /**
@@ -28,11 +30,12 @@ async function apiCall(action, data = {}) {
 
     const result = await response.json();
 
-    console.log("API Response:", result); // Debug log
+    console.log("API Response:", result);
 
     if (!result.success) {
       // For some endpoints, success might be false but still valid (like check_session)
       // Only throw if there's an actual error message
+
       if (result.message && result.message !== "No active session") {
         throw new Error(result.message || "API request failed");
       }
@@ -323,8 +326,7 @@ async function loadPaymentHistory(filters = {}) {
     const payments = result.data;
 
     const tbody = document.getElementById("payment-history-body");
-    if (!tbody) return; // Element doesn't exist
-
+    if (!tbody) return;
     tbody.innerHTML = "";
 
     if (payments.length === 0) {
@@ -455,6 +457,24 @@ async function loadFeeTypes() {
   }
 }
 
+/**
+ * Create Assessment
+ */
+async function createAssessment(enrollmentId, assessmentData) {
+  try {
+    const result = await apiCall("create_assessment", {
+      enrollment_id: enrollmentId,
+      ...assessmentData,
+    });
+    showNotification("Assessment created successfully", "success");
+    return result.data;
+  } catch (error) {
+    console.error("Failed to create assessment:", error);
+    showNotification("Failed to create assessment: " + error.message, "error");
+    throw error;
+  }
+}
+
 // =============================================
 // SCHOLARSHIP API CALLS
 // =============================================
@@ -530,6 +550,7 @@ async function getScholarshipDetails(scholarshipId) {
   } catch (error) {
     console.error("Failed to load scholarship details:", error);
     showNotification("Failed to load scholarship details", "error");
+    throw error;
   }
 }
 
@@ -540,10 +561,33 @@ async function createScholarship(scholarshipData) {
   try {
     const result = await apiCall("create_scholarship", scholarshipData);
     showNotification("Scholarship created successfully", "success");
+    await loadScholarships();
+    hideCreateScholarshipForm();
     return result.data;
   } catch (error) {
     console.error("Failed to create scholarship:", error);
     showNotification("Failed to create scholarship: " + error.message, "error");
+    throw error;
+  }
+}
+
+/**
+ * Update Scholarship
+ */
+async function updateScholarship(scholarshipId, scholarshipData) {
+  try {
+    const result = await apiCall("update_scholarship", {
+      scholarship_id: scholarshipId,
+      ...scholarshipData,
+    });
+    showNotification("Scholarship updated successfully", "success");
+    await loadScholarships();
+    hideEditScholarshipForm();
+    return result.data;
+  } catch (error) {
+    console.error("Failed to update scholarship:", error);
+    showNotification("Failed to update scholarship: " + error.message, "error");
+    throw error;
   }
 }
 
@@ -558,6 +602,7 @@ async function assignScholarship(assignmentData) {
   } catch (error) {
     console.error("Failed to assign scholarship:", error);
     showNotification("Failed to assign scholarship: " + error.message, "error");
+    throw error;
   }
 }
 
@@ -573,6 +618,7 @@ async function getStudentScholarships(studentId) {
   } catch (error) {
     console.error("Failed to load student scholarships:", error);
     showNotification("Failed to load student scholarships", "error");
+    throw error;
   }
 }
 
@@ -696,7 +742,7 @@ function showPaymentForm(assessmentId, studentName, balance) {
 }
 
 /**
- * Hide Payment Form Modal
+ * Hide Payment Form Modal (FIXED - renamed from hidePostPayment)
  */
 function hidePaymentForm() {
   const postPaymentElement = document.getElementById("post-payment");
@@ -708,6 +754,13 @@ function hidePaymentForm() {
   if (transactionTableElement) {
     transactionTableElement.style.display = "block";
   }
+}
+
+/**
+ * DEPRECATED: Kept for backward compatibility
+ */
+function hidePostPayment() {
+  hidePaymentForm();
 }
 
 /**
@@ -766,23 +819,6 @@ async function submitPaymentForm() {
 // =============================================
 
 /**
- * Create Assessment
- */
-async function createAssessment(enrollmentId, assessmentData) {
-  try {
-    const result = await apiCall("create_assessment", {
-      enrollment_id: enrollmentId,
-      ...assessmentData,
-    });
-    showNotification("Assessment created successfully", "success");
-    return result.data;
-  } catch (error) {
-    console.error("Failed to create assessment:", error);
-    showNotification("Failed to create assessment: " + error.message, "error");
-  }
-}
-
-/**
  * Show Create Assessment Form
  */
 function showCreateAssessment() {
@@ -794,16 +830,168 @@ function showCreateAssessment() {
  * Show Create Scholarship Form
  */
 function showCreateScholarship() {
-  showNotification("Create scholarship form - to be implemented", "info");
-  // TODO: Implement scholarship creation form
+  const modal = document.getElementById("create-scholarship-modal");
+  if (modal) {
+    modal.classList.add("active");
+    resetScholarshipForm();
+  } else {
+    showNotification("Create scholarship form not found", "error");
+  }
+}
+
+/**
+ * Hide Create Scholarship Form
+ */
+function hideCreateScholarshipForm() {
+  const modal = document.getElementById("create-scholarship-modal");
+  if (modal) {
+    modal.classList.remove("active");
+  }
+}
+
+/**
+ * Hide Edit Scholarship Form
+ */
+function hideEditScholarshipForm() {
+  const modal = document.getElementById("edit-scholarship-modal");
+  if (modal) {
+    modal.classList.remove("active");
+  }
+}
+
+/**
+ * Submit Create Scholarship Form
+ */
+async function submitCreateScholarshipForm() {
+  const nameInput = document.getElementById("scholarship-name");
+  const typeInput = document.getElementById("scholarship-type");
+  const percentageInput = document.getElementById("discount-percentage");
+  const amountInput = document.getElementById("discount-amount");
+  const requirementsInput = document.getElementById("scholarship-requirements");
+
+  if (!nameInput || !typeInput) {
+    showNotification("Required form fields not found", "error");
+    return;
+  }
+
+  const name = nameInput.value.trim();
+  const type = typeInput.value.trim();
+  const percentage = parseFloat(percentageInput?.value || 0);
+  const amount = parseFloat(amountInput?.value || 0);
+  const requirements = requirementsInput?.value || "";
+
+  if (!name || !type) {
+    showNotification("Scholarship name and type are required", "error");
+    return;
+  }
+
+  if (percentage <= 0 && amount <= 0) {
+    showNotification(
+      "Either discount percentage or amount must be greater than 0",
+      "error",
+    );
+    return;
+  }
+
+  try {
+    await createScholarship({
+      scholarship_name: name,
+      scholarship_type: type,
+      discount_percentage: percentage,
+      discount_amount: amount,
+      requirements: requirements,
+    });
+  } catch (error) {
+    console.error("Error creating scholarship:", error);
+  }
 }
 
 /**
  * Edit Scholarship
  */
-function editScholarship(id) {
-  showNotification("Edit scholarship #" + id + " - to be implemented", "info");
-  // TODO: Implement scholarship edit functionality
+async function editScholarship(id) {
+  try {
+    const details = await getScholarshipDetails(id);
+    const modal = document.getElementById("edit-scholarship-modal");
+
+    if (modal) {
+      // Populate form with scholarship data
+      const nameInput = document.getElementById("edit-scholarship-name");
+      const typeInput = document.getElementById("edit-scholarship-type");
+      const percentageInput = document.getElementById(
+        "edit-discount-percentage",
+      );
+      const amountInput = document.getElementById("edit-discount-amount");
+      const requirementsInput = document.getElementById(
+        "edit-scholarship-requirements",
+      );
+      const idInput = document.getElementById("edit-scholarship-id");
+
+      if (nameInput) nameInput.value = details.scholarship_name;
+      if (typeInput) typeInput.value = details.scholarship_type;
+      if (percentageInput)
+        percentageInput.value = details.discount_percentage || 0;
+      if (amountInput) amountInput.value = details.discount_amount || 0;
+      if (requirementsInput)
+        requirementsInput.value = details.description || "";
+      if (idInput) idInput.value = id;
+
+      modal.classList.add("active");
+    }
+  } catch (error) {
+    showNotification("Failed to load scholarship for editing", "error");
+  }
+}
+
+/**
+ * Submit Edit Scholarship Form
+ */
+async function submitEditScholarshipForm() {
+  const idInput = document.getElementById("edit-scholarship-id");
+  const nameInput = document.getElementById("edit-scholarship-name");
+  const typeInput = document.getElementById("edit-scholarship-type");
+  const percentageInput = document.getElementById("edit-discount-percentage");
+  const amountInput = document.getElementById("edit-discount-amount");
+  const requirementsInput = document.getElementById(
+    "edit-scholarship-requirements",
+  );
+
+  if (!idInput || !nameInput || !typeInput) {
+    showNotification("Required form fields not found", "error");
+    return;
+  }
+
+  const id = parseInt(idInput.value);
+  const name = nameInput.value.trim();
+  const type = typeInput.value.trim();
+  const percentage = parseFloat(percentageInput?.value || 0);
+  const amount = parseFloat(amountInput?.value || 0);
+  const requirements = requirementsInput?.value || "";
+
+  if (!name || !type) {
+    showNotification("Scholarship name and type are required", "error");
+    return;
+  }
+
+  if (percentage <= 0 && amount <= 0) {
+    showNotification(
+      "Either discount percentage or amount must be greater than 0",
+      "error",
+    );
+    return;
+  }
+
+  try {
+    await updateScholarship(id, {
+      scholarship_name: name,
+      scholarship_type: type,
+      discount_percentage: percentage,
+      discount_amount: amount,
+      requirements: requirements,
+    });
+  } catch (error) {
+    console.error("Error updating scholarship:", error);
+  }
 }
 
 /**
@@ -812,12 +1000,107 @@ function editScholarship(id) {
 async function viewScholarship(scholarshipId) {
   try {
     const details = await getScholarshipDetails(scholarshipId);
-    showNotification("View scholarship - to be implemented", "info");
-    console.log("Scholarship details:", details);
-    // Show scholarship details in modal or new page
+    const modal = document.getElementById("view-scholarship-modal");
+
+    if (modal) {
+      // Populate modal with scholarship data
+      const nameElement = document.getElementById("view-scholarship-name");
+      const typeElement = document.getElementById("view-scholarship-type");
+      const discountElement = document.getElementById(
+        "view-scholarship-discount",
+      );
+      const recipientsElement = document.getElementById(
+        "view-scholarship-recipients",
+      );
+      const requirementsElement = document.getElementById(
+        "view-scholarship-requirements",
+      );
+
+      if (nameElement) nameElement.textContent = details.scholarship_name;
+      if (typeElement) typeElement.textContent = details.scholarship_type;
+
+      let discountDisplay = "";
+      if (details.discount_percentage) {
+        discountDisplay = details.discount_percentage + "%";
+      } else if (details.discount_amount) {
+        discountDisplay = formatCurrency(details.discount_amount);
+      }
+      if (discountElement) discountElement.textContent = discountDisplay;
+
+      if (recipientsElement)
+        recipientsElement.textContent = details.active_recipients;
+      if (requirementsElement)
+        requirementsElement.textContent =
+          details.requirements || "No requirements specified";
+
+      modal.classList.add("active");
+    }
   } catch (error) {
     showNotification("Failed to view scholarship", "error");
   }
+}
+
+/**
+ * Close View Scholarship Modal
+ */
+function closeViewScholarshipModal() {
+  const modal = document.getElementById("view-scholarship-modal");
+  if (modal) {
+    modal.classList.remove("active");
+  }
+}
+
+/**
+ * Reset Scholarship Form
+ */
+function resetScholarshipForm() {
+  const nameInput = document.getElementById("scholarship-name");
+  const typeInput = document.getElementById("scholarship-type");
+  const percentageInput = document.getElementById("discount-percentage");
+  const amountInput = document.getElementById("discount-amount");
+  const requirementsInput = document.getElementById("scholarship-requirements");
+
+  if (nameInput) nameInput.value = "";
+  if (typeInput) typeInput.value = "";
+  if (percentageInput) percentageInput.value = "";
+  if (amountInput) amountInput.value = "";
+  if (requirementsInput) requirementsInput.value = "";
+}
+
+/**
+ * Show Create Billing Form
+ */
+function showCreateBillingForm() {
+  const modal = document.getElementById("create-billing-modal");
+  if (modal) {
+    modal.classList.add("active");
+    resetBillingForm();
+  } else {
+    showNotification("Create billing form not found", "error");
+  }
+}
+
+/**
+ * Hide Create Billing Form
+ */
+function hideCreateBillingForm() {
+  const modal = document.getElementById("create-billing-modal");
+  if (modal) {
+    modal.classList.remove("active");
+  }
+}
+
+/**
+ * Reset Billing Form
+ */
+function resetBillingForm() {
+  const descriptionInput = document.getElementById("description");
+  const amountInput = document.getElementById("billing-amount");
+  const dueDateInput = document.getElementById("billing-due-date");
+
+  if (descriptionInput) descriptionInput.value = "";
+  if (amountInput) amountInput.value = "";
+  if (dueDateInput) dueDateInput.value = "";
 }
 
 /**

@@ -153,17 +153,18 @@ if ($action === 'get_dashboard_stats') {
             $totalPayments = floatval($row['total_payments']);
         }
 
-        // Pending balance
+        // Pending balance - UPDATED TO INCLUDE GLOBAL BILLINGS
         $result = $conn->query("
             SELECT 
                 COALESCE(SUM(sa.net_amount), 0) as total_assessment,
-                COALESCE(SUM(p.amount_paid), 0) as total_paid
+                COALESCE(SUM(p.amount_paid), 0) as total_paid,
+                (SELECT COALESCE(SUM(amount), 0) FROM billings WHERE status = 'Active') as total_billings
             FROM student_assessments sa
             LEFT JOIN payments p ON sa.assessment_id = p.assessment_id
         ");
         $pendingBalance = 0;
         if ($result && $row = $result->fetch_assoc()) {
-            $pendingBalance = floatval($row['total_assessment']) - floatval($row['total_paid']);
+            $pendingBalance = floatval($row['total_assessment']) + floatval($row['total_billings']) - floatval($row['total_paid']);
         }
 
         // Monthly revenue for the last 12 months
@@ -255,7 +256,7 @@ if ($action === 'get_student_details') {
                 "email" => $row['email'],
                 "phone" => $row['contact_number'],
                 "year_level" => $row['year_level'],
-                "section" => null, // Not in schema
+                "section" => null,
                 "admission_type" => $row['student_status'],
                 "program_id" => intval($row['program_id']),
                 "program_name" => $row['program_name']
@@ -268,7 +269,7 @@ if ($action === 'get_student_details') {
 }
 
 // =============================================
-// ASSESSMENT ENDPOINTS - FIXED SCHEMA
+// ASSESSMENT ENDPOINTS - UPDATED WITH GLOBAL BILLING SUPPORT
 // =============================================
 
 if ($action === 'get_all_assessments') {
@@ -299,7 +300,7 @@ if ($action === 'get_all_assessments') {
         }
 
         while ($row = $result->fetch_assoc()) {
-            // Calculate balance
+            // Calculate assessment balance
             $paid = 0;
             $paymentResult = $conn->query("
                 SELECT COALESCE(SUM(amount_paid), 0) as paid 
@@ -310,8 +311,24 @@ if ($action === 'get_all_assessments') {
                 $paid = floatval($payRow['paid']);
             }
             
-            $balance = floatval($row['net_amount']) - $paid;
-            $status = $balance <= 0 ? 'Paid' : 'Pending';
+            $assessmentBalance = floatval($row['net_amount']) - $paid;
+            
+            // *** UPDATED: INCLUDE GLOBAL BILLINGS (student_id IS NULL) ***
+            $customBillingsBalance = 0;
+            $billingsResult = $conn->query("
+                SELECT COALESCE(SUM(amount), 0) as total_billings
+                FROM billings
+                WHERE (student_id = " . intval($row['student_id']) . " OR student_id IS NULL)
+                AND status = 'Active'
+            ");
+            
+            if ($billingsResult && $billRow = $billingsResult->fetch_assoc()) {
+                $customBillingsBalance = floatval($billRow['total_billings']);
+            }
+            
+            // Total balance = assessment balance + custom billings (including global)
+            $totalBalance = $assessmentBalance + $customBillingsBalance;
+            $status = $totalBalance <= 0 ? 'Paid' : 'Pending';
 
             $assessments[] = array(
                 "assessment_id" => intval($row['assessment_id']),
@@ -322,7 +339,9 @@ if ($action === 'get_all_assessments') {
                 "total_assessment" => floatval($row['total_assessment']),
                 "net_amount" => floatval($row['net_amount']),
                 "amount_paid" => $paid,
-                "balance" => $balance,
+                "assessment_balance" => $assessmentBalance,
+                "custom_billings" => $customBillingsBalance,
+                "balance" => $totalBalance,
                 "status" => $status
             );
         }
@@ -331,102 +350,6 @@ if ($action === 'get_all_assessments') {
 
     } catch (Exception $e) {
         sendResponse(false, array(), "Error retrieving assessments: " . $e->getMessage(), 500);
-    }
-}
-
-if ($action === 'get_assessment_details') {
-    try {
-        $assessment_id = isset($request_data['assessment_id']) ? intval($request_data['assessment_id']) : 0;
-
-        if (!$assessment_id) {
-            sendResponse(false, array(), "Assessment ID is required", 400);
-        }
-
-        $query = "
-            SELECT 
-                sa.*,
-                s.student_id,
-                s.student_number,
-                s.first_name,
-                s.last_name,
-                p.program_name,
-                e.period_id,
-                ep.semester,
-                ep.school_year
-            FROM student_assessments sa
-            JOIN enrollments e ON sa.enrollment_id = e.enrollment_id
-            JOIN students s ON e.student_id = s.student_id
-            JOIN programs p ON s.program_id = p.program_id
-            JOIN enrollment_periods ep ON e.period_id = ep.period_id
-            WHERE sa.assessment_id = $assessment_id
-            LIMIT 1
-        ";
-
-        $result = $conn->query($query);
-        if (!$result || $result->num_rows === 0) {
-            sendResponse(false, array(), "Assessment not found", 404);
-        }
-
-        $row = $result->fetch_assoc();
-
-        // Get payment total
-        $paymentResult = $conn->query("
-            SELECT COALESCE(SUM(amount_paid), 0) as total_paid 
-            FROM payments 
-            WHERE assessment_id = $assessment_id
-        ");
-        $total_paid = 0;
-        if ($paymentResult && $payRow = $paymentResult->fetch_assoc()) {
-            $total_paid = floatval($payRow['total_paid']);
-        }
-
-        // Get assessment fees breakdown
-        $feesQuery = "
-            SELECT 
-                ad.amount,
-                ft.fee_name,
-                ft.fee_type_id
-            FROM assessment_details ad
-            JOIN fee_types ft ON ad.fee_type_id = ft.fee_type_id
-            WHERE ad.assessment_id = $assessment_id
-        ";
-        
-        $fees = array();
-        $feesResult = $conn->query($feesQuery);
-        if ($feesResult) {
-            while ($feeRow = $feesResult->fetch_assoc()) {
-                $fees[] = array(
-                    "fee_type_id" => intval($feeRow['fee_type_id']),
-                    "fee_name" => $feeRow['fee_name'],
-                    "amount" => floatval($feeRow['amount'])
-                );
-            }
-        }
-
-        sendResponse(true, array(
-            "assessment_id" => intval($row['assessment_id']),
-            "enrollment_id" => intval($row['enrollment_id']),
-            "student" => array(
-                "student_id" => intval($row['student_id']),
-                "student_number" => $row['student_number'],
-                "name" => trim($row['first_name'] . ' ' . $row['last_name']),
-                "program" => $row['program_name']
-            ),
-            "period" => array(
-                "semester" => $row['semester'],
-                "school_year" => $row['school_year']
-            ),
-            "total_assessment" => floatval($row['total_assessment']),
-            "discount_amount" => floatval($row['discount_amount']),
-            "net_amount" => floatval($row['net_amount']),
-            "total_paid" => $total_paid,
-            "balance" => floatval($row['net_amount']) - $total_paid,
-            "fees" => $fees,
-            "created_at" => $row['created_at']
-        ), "Assessment details retrieved successfully");
-
-    } catch (Exception $e) {
-        sendResponse(false, array(), "Error retrieving assessment details: " . $e->getMessage(), 500);
     }
 }
 
@@ -544,12 +467,14 @@ if ($action === 'create_payment' && $request_method === 'POST') {
             sendResponse(false, array(), "Invalid assessment ID or amount", 400);
         }
 
-        // Check if assessment exists and get balance
+        // Check if assessment exists and get balance (including global billings)
         $checkResult = $conn->query("
             SELECT 
                 sa.net_amount,
-                COALESCE(SUM(p.amount_paid), 0) as total_paid
+                COALESCE(SUM(p.amount_paid), 0) as total_paid,
+                e.student_id
             FROM student_assessments sa
+            JOIN enrollments e ON sa.enrollment_id = e.enrollment_id
             LEFT JOIN payments p ON sa.assessment_id = p.assessment_id
             WHERE sa.assessment_id = $assessment_id
             GROUP BY sa.assessment_id
@@ -560,7 +485,22 @@ if ($action === 'create_payment' && $request_method === 'POST') {
         }
 
         $row = $checkResult->fetch_assoc();
-        $balance = floatval($row['net_amount']) - floatval($row['total_paid']);
+        $student_id = $row['student_id'];
+        
+        // Get custom billings (including global)
+        $billingsResult = $conn->query("
+            SELECT COALESCE(SUM(amount), 0) as total_billings
+            FROM billings
+            WHERE (student_id = $student_id OR student_id IS NULL)
+            AND status = 'Active'
+        ");
+        
+        $customBillings = 0;
+        if ($billingsResult && $billRow = $billingsResult->fetch_assoc()) {
+            $customBillings = floatval($billRow['total_billings']);
+        }
+        
+        $balance = floatval($row['net_amount']) + $customBillings - floatval($row['total_paid']);
 
         if ($amount_paid > $balance) {
             sendResponse(false, array(), "Payment amount exceeds balance due (₱" . number_format($balance, 2) . ")", 400);
@@ -812,37 +752,84 @@ if ($action === 'get_payment_report') {
 }
 
 // =============================================
-// BILLING ENDPOINTS
+// BILLING ENDPOINTS - UPDATED WITH GLOBAL BILLING SUPPORT
 // =============================================
 
-if ($action === 'get_billing_summary') {
+if ($action === 'create_billing' && $request_method === 'POST') {
     try {
-        $result = $conn->query("
-            SELECT 
-                COALESCE(SUM(sa.net_amount), 0) as total_assessment,
-                COALESCE(SUM(p.amount_paid), 0) as total_paid
-            FROM student_assessments sa
-            LEFT JOIN payments p ON sa.assessment_id = p.assessment_id
-        ");
+        $billing_description = isset($request_data['billing_description']) ? $request_data['billing_description'] : '';
+        $amount = isset($request_data['amount']) ? floatval($request_data['amount']) : 0;
+        $due_date = isset($request_data['due_date']) ? $request_data['due_date'] : '';
+        $remarks = isset($request_data['remarks']) ? $request_data['remarks'] : '';
+        $student_id = isset($request_data['student_id']) ? intval($request_data['student_id']) : 0;
 
-        if (!$result) {
-            throw new Exception($conn->error);
+        if (empty($billing_description)) {
+            sendResponse(false, array(), "Billing description is required", 400);
         }
 
-        $row = $result->fetch_assoc();
-        $total_assessment = floatval($row['total_assessment']);
-        $total_paid = floatval($row['total_paid']);
-        $balance_due = $total_assessment - $total_paid;
+        if ($amount <= 0) {
+            sendResponse(false, array(), "Amount must be greater than 0", 400);
+        }
+
+        if (empty($due_date)) {
+            sendResponse(false, array(), "Due date is required", 400);
+        }
+
+        // Create billings table if it doesn't exist
+        $checkTable = $conn->query("SHOW TABLES LIKE 'billings'");
+        if (!$checkTable || $checkTable->num_rows === 0) {
+            $createTableSQL = "
+                CREATE TABLE IF NOT EXISTS billings (
+                    billing_id INT PRIMARY KEY AUTO_INCREMENT,
+                    student_id INT,
+                    billing_description VARCHAR(255) NOT NULL,
+                    amount DECIMAL(10, 2) NOT NULL,
+                    due_date DATE NOT NULL,
+                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    remarks TEXT,
+                    status ENUM('Active', 'Completed', 'Cancelled') DEFAULT 'Active',
+                    FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE SET NULL
+                )
+            ";
+            $conn->query($createTableSQL);
+        }
+
+        // Insert billing - UPDATED TO ALLOW NULL student_id FOR GLOBAL BILLINGS
+        if ($student_id > 0) {
+            // Student-specific billing
+            $stmt = $conn->prepare("
+                INSERT INTO billings 
+                (student_id, billing_description, amount, due_date, remarks, status)
+                VALUES (?, ?, ?, ?, ?, 'Active')
+            ");
+            $stmt->bind_param("isdss", $student_id, $billing_description, $amount, $due_date, $remarks);
+        } else {
+            // Global billing (applies to all students)
+            $stmt = $conn->prepare("
+                INSERT INTO billings 
+                (student_id, billing_description, amount, due_date, remarks, status)
+                VALUES (NULL, ?, ?, ?, ?, 'Active')
+            ");
+            $stmt->bind_param("sdss", $billing_description, $amount, $due_date, $remarks);
+        }
+
+        if (!$stmt->execute()) {
+            throw new Exception($stmt->error);
+        }
+
+        $billing_type = $student_id > 0 ? 'Personal' : 'Global (All Students)';
 
         sendResponse(true, array(
-            "total_assessment" => $total_assessment,
-            "total_paid" => $total_paid,
-            "balance_due" => $balance_due,
-            "collection_rate" => $total_assessment > 0 ? round(($total_paid / $total_assessment) * 100, 2) : 0
-        ), "Billing summary retrieved successfully");
+            "billing_id" => $stmt->insert_id,
+            "billing_description" => $billing_description,
+            "amount" => $amount,
+            "due_date" => $due_date,
+            "student_id" => $student_id > 0 ? $student_id : null,
+            "billing_type" => $billing_type
+        ), "Billing created successfully - " . $billing_type, 201);
 
     } catch (Exception $e) {
-        sendResponse(false, array(), "Error retrieving billing summary: " . $e->getMessage(), 500);
+        sendResponse(false, array(), "Error creating billing: " . $e->getMessage(), 500);
     }
 }
 
@@ -858,18 +845,41 @@ if ($action === 'get_student_billing') {
             sendResponse(false, array(), "Student ID is required", 400);
         }
 
-        $query = "
+        // Get student info
+        $studentQuery = "
             SELECT 
                 s.student_id,
                 s.student_number,
                 s.first_name,
                 s.last_name,
-                p.program_name,
+                p.program_name
+            FROM students s
+            LEFT JOIN programs p ON s.program_id = p.program_id
+            WHERE s.student_id = $student_id
+            LIMIT 1
+        ";
+        $studentResult = $conn->query($studentQuery);
+        if (!$studentResult || $studentResult->num_rows === 0) {
+            sendResponse(false, array(), "Student not found", 404);
+        }
+
+        $studentRow = $studentResult->fetch_assoc();
+        $student = array(
+            "student_id" => intval($studentRow['student_id']),
+            "student_number" => $studentRow['student_number'],
+            "name" => trim($studentRow['first_name'] . ' ' . $studentRow['last_name']),
+            "program" => $studentRow['program_name']
+        );
+
+        // Get assessment billings
+        $assessmentBillings = array();
+        $query = "
+            SELECT 
                 sa.assessment_id,
                 sa.net_amount,
-                COALESCE(SUM(py.amount_paid), 0) as amount_paid
+                COALESCE(SUM(py.amount_paid), 0) as amount_paid,
+                sa.created_at as date_created
             FROM students s
-            JOIN programs p ON s.program_id = p.program_id
             JOIN enrollments e ON s.student_id = e.student_id
             JOIN student_assessments sa ON e.enrollment_id = sa.enrollment_id
             LEFT JOIN payments py ON sa.assessment_id = py.assessment_id
@@ -879,47 +889,88 @@ if ($action === 'get_student_billing') {
         ";
 
         $result = $conn->query($query);
-        if (!$result || $result->num_rows === 0) {
-            sendResponse(false, array(), "Student not found", 404);
-        }
-
-        $student = null;
-        $billings = array();
         $totalAssessment = 0;
-        $totalPaid = 0;
+        $totalAssessmentPaid = 0;
 
-        while ($row = $result->fetch_assoc()) {
-            if (!$student) {
-                $student = array(
-                    "student_id" => intval($row['student_id']),
-                    "student_number" => $row['student_number'],
-                    "name" => trim($row['first_name'] . ' ' . $row['last_name']),
-                    "program" => $row['program_name']
+        if ($result && $result->num_rows > 0) {
+            while ($row = $result->fetch_assoc()) {
+                $net = floatval($row['net_amount']);
+                $paid = floatval($row['amount_paid']);
+                $balance = $net - $paid;
+
+                $assessmentBillings[] = array(
+                    "type" => "assessment",
+                    "assessment_id" => intval($row['assessment_id']),
+                    "description" => "Semester Assessment",
+                    "net_amount" => $net,
+                    "amount_paid" => $paid,
+                    "balance" => $balance,
+                    "date_created" => $row['date_created'],
+                    "status" => $balance > 0 ? "Pending" : "Paid"
                 );
+
+                $totalAssessment += $net;
+                $totalAssessmentPaid += $paid;
             }
-
-            $net = floatval($row['net_amount']);
-            $paid = floatval($row['amount_paid']);
-            $balance = $net - $paid;
-
-            $billings[] = array(
-                "assessment_id" => intval($row['assessment_id']),
-                "net_amount" => $net,
-                "amount_paid" => $paid,
-                "balance" => $balance
-            );
-
-            $totalAssessment += $net;
-            $totalPaid += $paid;
         }
+
+        // Get custom billings - UPDATED TO INCLUDE GLOBAL BILLINGS
+        $customBillings = array();
+        $billingsQuery = "
+            SELECT 
+                billing_id,
+                billing_description,
+                amount,
+                due_date,
+                created_date,
+                status,
+                student_id,
+                CASE WHEN student_id IS NULL THEN 'Global' ELSE 'Personal' END as billing_type
+            FROM billings
+            WHERE (student_id = $student_id OR student_id IS NULL)
+              AND status = 'Active'
+            ORDER BY due_date ASC
+        ";
+
+        $billingsResult = $conn->query($billingsQuery);
+        $totalCustomBillings = 0;
+
+        if ($billingsResult && $billingsResult->num_rows > 0) {
+            while ($billRow = $billingsResult->fetch_assoc()) {
+                $billAmount = floatval($billRow['amount']);
+                $customBillings[] = array(
+                    "type" => "custom_billing",
+                    "billing_id" => intval($billRow['billing_id']),
+                    "description" => $billRow['billing_description'],
+                    "net_amount" => $billAmount,
+                    "amount_paid" => 0,
+                    "balance" => $billAmount,
+                    "due_date" => $billRow['due_date'],
+                    "date_created" => $billRow['created_date'],
+                    "status" => $billRow['status'],
+                    "billing_type" => $billRow['billing_type']
+                );
+                $totalCustomBillings += $billAmount;
+            }
+        }
+
+        // Combine all billings
+        $allBillings = array_merge($assessmentBillings, $customBillings);
+
+        // Calculate totals
+        $totalAssessmentBalance = $totalAssessment - $totalAssessmentPaid;
+        $totalBalance = $totalAssessmentBalance + $totalCustomBillings;
 
         sendResponse(true, array(
             "student" => $student,
-            "billings" => $billings,
+            "billings" => $allBillings,
             "summary" => array(
                 "total_assessment" => $totalAssessment,
-                "total_paid" => $totalPaid,
-                "total_balance" => $totalAssessment - $totalPaid
+                "total_assessment_paid" => $totalAssessmentPaid,
+                "total_assessment_balance" => $totalAssessmentBalance,
+                "total_custom_billings" => $totalCustomBillings,
+                "total_paid" => $totalAssessmentPaid,
+                "total_balance" => $totalBalance
             )
         ), "Student billing retrieved successfully");
 
@@ -928,36 +979,40 @@ if ($action === 'get_student_billing') {
     }
 }
 
-if ($action === 'get_fee_types') {
+if ($action === 'get_billing_summary') {
     try {
-        $feeTypes = array();
-        
         $result = $conn->query("
             SELECT 
-                fee_type_id,
-                fee_name,
-                base_amount,
-                fee_description
-            FROM fee_types
-            WHERE is_active = TRUE
-            ORDER BY fee_name ASC
+                COALESCE(SUM(sa.net_amount), 0) as total_assessment,
+                COALESCE(SUM(p.amount_paid), 0) as total_paid,
+                COALESCE(SUM(b.amount), 0) as total_billings
+            FROM student_assessments sa
+            LEFT JOIN payments p ON sa.assessment_id = p.assessment_id
+            LEFT JOIN billings b ON b.status = 'Active'
         ");
 
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $feeTypes[] = array(
-                    "fee_type_id" => intval($row['fee_type_id']),
-                    "fee_name" => $row['fee_name'],
-                    "base_amount" => floatval($row['base_amount']),
-                    "description" => $row['fee_description']
-                );
-            }
+        if (!$result) {
+            throw new Exception($conn->error);
         }
 
-        sendResponse(true, $feeTypes, "Fee types retrieved successfully");
+        $row = $result->fetch_assoc();
+        $total_assessment = floatval($row['total_assessment']);
+        $total_paid = floatval($row['total_paid']);
+        $total_billings = floatval($row['total_billings']);
+        $total_amount = $total_assessment + $total_billings;
+        $balance_due = $total_amount - $total_paid;
+
+        sendResponse(true, array(
+            "total_assessment" => $total_assessment,
+            "total_billings" => $total_billings,
+            "total_amount" => $total_amount,
+            "total_paid" => $total_paid,
+            "balance_due" => $balance_due,
+            "collection_rate" => $total_amount > 0 ? round(($total_paid / $total_amount) * 100, 2) : 0
+        ), "Billing summary retrieved successfully");
 
     } catch (Exception $e) {
-        sendResponse(false, array(), "Error retrieving fee types: " . $e->getMessage(), 500);
+        sendResponse(false, array(), "Error retrieving billing summary: " . $e->getMessage(), 500);
     }
 }
 
@@ -1316,7 +1371,7 @@ if ($action === 'get_account_statement') {
             "school_year" => $studentRow['school_year']
         );
 
-        // Get transactions
+        // Get transactions - UPDATED TO INCLUDE GLOBAL BILLINGS
         $transQuery = "
             SELECT 
                 DATE_FORMAT(sa.created_at, '%Y-%m-%d') as date,
@@ -1344,6 +1399,19 @@ if ($action === 'get_account_statement') {
                     SELECT enrollment_id FROM enrollments WHERE student_id = $student_id
                 )
             )
+            
+            UNION ALL
+            
+            SELECT 
+                DATE_FORMAT(b.created_date, '%Y-%m-%d') as date,
+                CONCAT('Custom Billing - ', b.billing_description) as description,
+                b.amount as charges,
+                0 as payments,
+                0 as balance
+            FROM billings b
+            WHERE (b.student_id = $student_id OR b.student_id IS NULL)
+              AND b.status = 'Active'
+            
             ORDER BY date ASC
         ";
 
@@ -1469,7 +1537,7 @@ if ($action === 'search_students') {
 }
 
 // =============================================
-// COLLECTION SUMMARY
+// COLLECTION SUMMARY - UPDATED WITH GLOBAL BILLINGS
 // =============================================
 
 if ($action === 'get_collection_summary') {
@@ -1478,6 +1546,7 @@ if ($action === 'get_collection_summary') {
             SELECT 
                 COUNT(DISTINCT s.student_id) as total_students,
                 COALESCE(SUM(sa.net_amount), 0) as total_assessment,
+                (SELECT COALESCE(SUM(amount), 0) FROM billings WHERE status = 'Active') as total_billings,
                 COALESCE(SUM(p.amount_paid), 0) as total_collected
             FROM students s
             LEFT JOIN enrollments e ON s.student_id = e.student_id
@@ -1492,8 +1561,10 @@ if ($action === 'get_collection_summary') {
         $row = $result->fetch_assoc();
         $total_students = intval($row['total_students']);
         $total_assessment = floatval($row['total_assessment']);
+        $total_billings = floatval($row['total_billings']);
+        $total_amount = $total_assessment + $total_billings;
         $total_collected = floatval($row['total_collected']);
-        $total_outstanding = $total_assessment - $total_collected;
+        $total_outstanding = $total_amount - $total_collected;
         
         // Count students who paid
         $paidResult = $conn->query("
@@ -1514,16 +1585,291 @@ if ($action === 'get_collection_summary') {
         sendResponse(true, array(
             "total_students" => $total_students,
             "total_assessment" => $total_assessment,
+            "total_billings" => $total_billings,
+            "total_amount" => $total_amount,
             "total_collected" => $total_collected,
             "total_outstanding" => $total_outstanding,
             "paid_students" => $paid_students,
-            "collection_rate" => $total_assessment > 0 ? round(($total_collected / $total_assessment) * 100, 2) : 0
+            "collection_rate" => $total_amount > 0 ? round(($total_collected / $total_amount) * 100, 2) : 0
         ), "Collection summary retrieved");
 
     } catch (Exception $e) {
         sendResponse(false, array(), "Error retrieving summary: " . $e->getMessage(), 500);
     }
 }
+
+// =============================================
+// GET FEE TYPES
+// =============================================
+
+if ($action === 'get_fee_types') {
+    try {
+        $feeTypes = array();
+        
+        $result = $conn->query("
+            SELECT 
+                fee_type_id,
+                fee_name,
+                base_amount,
+                fee_description
+            FROM fee_types
+            WHERE is_active = TRUE
+            ORDER BY fee_name ASC
+        ");
+
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $feeTypes[] = array(
+                    "fee_type_id" => intval($row['fee_type_id']),
+                    "fee_name" => $row['fee_name'],
+                    "base_amount" => floatval($row['base_amount']),
+                    "description" => $row['fee_description']
+                );
+            }
+        }
+
+        sendResponse(true, $feeTypes, "Fee types retrieved successfully");
+
+    } catch (Exception $e) {
+        sendResponse(false, array(), "Error retrieving fee types: " . $e->getMessage(), 500);
+    }
+}
+
+if ($action === 'get_all_billings') {
+    try {
+        // Check if billings table exists
+        $checkTable = $conn->query("SHOW TABLES LIKE 'billings'");
+        if (!$checkTable || $checkTable->num_rows === 0) {
+            // Create table if it doesn't exist
+            $conn->query("
+                CREATE TABLE IF NOT EXISTS billings (
+                    billing_id INT PRIMARY KEY AUTO_INCREMENT,
+                    student_id INT,
+                    billing_description VARCHAR(255) NOT NULL,
+                    amount DECIMAL(10, 2) NOT NULL,
+                    due_date DATE NOT NULL,
+                    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    remarks TEXT,
+                    status ENUM('Active', 'Completed', 'Cancelled') DEFAULT 'Active',
+                    FOREIGN KEY (student_id) REFERENCES students(student_id) ON DELETE SET NULL
+                )
+            ");
+            
+            sendResponse(true, array(), "Billings table created");
+        }
+
+        $billings = array();
+        
+        $query = "
+            SELECT 
+                b.billing_id,
+                b.student_id,
+                b.billing_description,
+                b.amount,
+                b.due_date,
+                b.created_date,
+                b.status,
+                b.remarks,
+                CASE WHEN b.student_id IS NULL THEN 'Global' ELSE 'Personal' END as billing_type,
+                CASE WHEN b.student_id IS NULL THEN 'All Students' 
+                     ELSE CONCAT(s.first_name, ' ', s.last_name) END as student_name
+            FROM billings b
+            LEFT JOIN students s ON b.student_id = s.student_id
+            WHERE b.status = 'Active'
+            ORDER BY b.created_date DESC
+            LIMIT 50
+        ";
+
+        $result = $conn->query($query);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $billings[] = array(
+                    "billing_id" => intval($row['billing_id']),
+                    "student_id" => $row['student_id'] ? intval($row['student_id']) : null,
+                    "student_name" => $row['student_name'],
+                    "billing_description" => $row['billing_description'],
+                    "amount" => floatval($row['amount']),
+                    "due_date" => $row['due_date'],
+                    "created_date" => $row['created_date'],
+                    "status" => $row['status'],
+                    "billing_type" => $row['billing_type'],
+                    "remarks" => $row['remarks']
+                );
+            }
+        }
+
+        sendResponse(true, $billings, "Billings retrieved successfully");
+
+    } catch (Exception $e) {
+        sendResponse(false, array(), "Error retrieving billings: " . $e->getMessage(), 500);
+    }
+}
+
+// =============================================
+// GET ALL STUDENT SCHOLARSHIPS
+// =============================================
+
+if ($action === 'get_all_student_scholarships') {
+    try {
+        $query = "
+            SELECT 
+                ss.student_scholarship_id,
+                ss.grant_date,
+                ss.expiry_date,
+                ss.STATUS,
+                s.student_id,
+                s.student_number,
+                CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                sch.scholarship_id,
+                sch.scholarship_name,
+                sch.scholarship_type,
+                sch.discount_percentage,
+                sch.discount_amount,
+                ep.semester,
+                ep.school_year
+            FROM student_scholarships ss
+            JOIN students s ON ss.student_id = s.student_id
+            JOIN scholarships sch ON ss.scholarship_id = sch.scholarship_id
+            JOIN enrollment_periods ep ON ss.period_id = ep.period_id
+            ORDER BY ss.grant_date DESC
+        ";
+
+        $scholarships = array();
+        $result = $conn->query($query);
+        
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $scholarships[] = array(
+                    "student_scholarship_id" => intval($row['student_scholarship_id']),
+                    "student_id" => intval($row['student_id']),
+                    "student_number" => $row['student_number'],
+                    "student_name" => $row['student_name'],
+                    "scholarship_id" => intval($row['scholarship_id']),
+                    "scholarship_name" => $row['scholarship_name'],
+                    "scholarship_type" => $row['scholarship_type'],
+                    "discount_percentage" => floatval($row['discount_percentage']),
+                    "discount_amount" => floatval($row['discount_amount']),
+                    "granted_date" => $row['grant_date'],
+                    "valid_until" => $row['expiry_date'],
+                    "status" => $row['STATUS'],
+                    "period" => $row['semester'] . ' ' . $row['school_year']
+                );
+            }
+        }
+
+        sendResponse(true, $scholarships, "Student scholarships retrieved successfully");
+
+    } catch (Exception $e) {
+        sendResponse(false, array(), "Error retrieving student scholarships: " . $e->getMessage(), 500);
+    }
+}
+
+// =============================================
+// GET STUDENT SCHOLARSHIP DETAILS
+// =============================================
+
+if ($action === 'get_student_scholarship_details') {
+    try {
+        $student_scholarship_id = isset($request_data['student_scholarship_id']) ? intval($request_data['student_scholarship_id']) : 0;
+
+        if (!$student_scholarship_id) {
+            sendResponse(false, array(), "Student scholarship ID is required", 400);
+        }
+
+        $query = "
+            SELECT 
+                ss.student_scholarship_id,
+                ss.grant_date,
+                ss.expiry_date,
+                ss.STATUS,
+                s.student_id,
+                s.student_number,
+                CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                sch.scholarship_id,
+                sch.scholarship_name,
+                sch.scholarship_type,
+                sch.discount_percentage,
+                sch.discount_amount,
+                ep.semester,
+                ep.school_year
+            FROM student_scholarships ss
+            JOIN students s ON ss.student_id = s.student_id
+            JOIN scholarships sch ON ss.scholarship_id = sch.scholarship_id
+            JOIN enrollment_periods ep ON ss.period_id = ep.period_id
+            WHERE ss.student_scholarship_id = $student_scholarship_id
+            LIMIT 1
+        ";
+
+        $result = $conn->query($query);
+        
+        if (!$result || $result->num_rows === 0) {
+            sendResponse(false, array(), "Student scholarship not found", 404);
+        }
+
+        $row = $result->fetch_assoc();
+        
+        sendResponse(true, array(
+            "student_scholarship_id" => intval($row['student_scholarship_id']),
+            "student_id" => intval($row['student_id']),
+            "student_number" => $row['student_number'],
+            "student_name" => $row['student_name'],
+            "scholarship_id" => intval($row['scholarship_id']),
+            "scholarship_name" => $row['scholarship_name'],
+            "scholarship_type" => $row['scholarship_type'],
+            "discount_percentage" => floatval($row['discount_percentage']),
+            "discount_amount" => floatval($row['discount_amount']),
+            "granted_date" => $row['grant_date'],
+            "valid_until" => $row['expiry_date'],
+            "status" => $row['STATUS'],
+            "period" => $row['semester'] . ' ' . $row['school_year']
+        ), "Student scholarship details retrieved successfully");
+
+    } catch (Exception $e) {
+        sendResponse(false, array(), "Error retrieving student scholarship details: " . $e->getMessage(), 500);
+    }
+}
+
+// =============================================
+// REVOKE SCHOLARSHIP
+// =============================================
+
+if ($action === 'revoke_scholarship' && $request_method === 'POST') {
+    try {
+        $student_scholarship_id = isset($request_data['student_scholarship_id']) ? intval($request_data['student_scholarship_id']) : 0;
+
+        if (!$student_scholarship_id) {
+            sendResponse(false, array(), "Student scholarship ID is required", 400);
+        }
+
+        $stmt = $conn->prepare("
+            UPDATE student_scholarships 
+            SET STATUS = 'Revoked'
+            WHERE student_scholarship_id = ?
+        ");
+
+        if (!$stmt) {
+            throw new Exception($conn->error);
+        }
+
+        $stmt->bind_param("i", $student_scholarship_id);
+
+        if (!$stmt->execute()) {
+            throw new Exception($stmt->error);
+        }
+
+        if ($stmt->affected_rows === 0) {
+            sendResponse(false, array(), "Scholarship not found or already revoked", 404);
+        }
+
+        sendResponse(true, array(
+            "student_scholarship_id" => $student_scholarship_id
+        ), "Scholarship revoked successfully");
+
+    } catch (Exception $e) {
+        sendResponse(false, array(), "Error revoking scholarship: " . $e->getMessage(), 500);
+    }
+}
+
 
 // =============================================
 // DEFAULT: No Action Provided
