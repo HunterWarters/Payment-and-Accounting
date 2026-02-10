@@ -1,4 +1,4 @@
-const STUDENT_ID = 3;
+const STUDENT_ID = 3; //replace with session during integration 
 
 // ============================================
 // SECTION NAVIGATION
